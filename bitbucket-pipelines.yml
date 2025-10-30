@@ -1,0 +1,263 @@
+# image: node:24.3.0
+image: node:20-alpine
+definitions:
+  caches:
+    node: ~/.npm
+    npm: ~/.npm
+    snyk: ~/.snyk
+pipelines:
+  pull-requests:
+    "**":
+      - step:
+          name: clone template
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - echo "Fazendo clone do projeto"
+            - git clone $PIPELINE_TEMPLATE_URL pipeline-template || { echo "Falha ao clonar pipeline-template"; exit 1; }
+
+            - cd pipeline-template
+            - echo "📦 Instalando dependências"
+            - npm install
+
+          artifacts:
+            - pipeline-template/** # pipeline-template
+
+      - parallel:
+          - step:
+              name: run lint
+              caches:
+                - npm
+              script:
+                - echo "📦 Instalando dependências do projeto"
+                - npm install
+
+                - echo "🙏 Executando lint.js..."
+                - node pipeline-template/scripts/lint.js
+          - step:
+              name: run snyk
+              caches:
+                - npm
+                - snyk
+              script:
+                - echo "🙏 Executando scan-vulnerabilities.js..."
+                - node pipeline-template/scripts/scan-vulnerabilities.js
+
+  branches:
+    develop:
+      - step:
+          name: clone template
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - echo "Fazendo clone do projeto"
+            - git clone $PIPELINE_TEMPLATE_URL pipeline-template || { echo "Falha ao clonar pipeline-template"; exit 1; }
+
+            - cd pipeline-template
+            - echo "📦 Instalando dependências"
+            - npm install
+
+            - echo "🙏 Executando clone-helm.js..."
+            - cd ..
+            - node pipeline-template/scripts/clone-helm.js $HELM_PROJECT dev
+            - export IMAGE_TAG=$(cat tag.txt)
+            - echo "$IMAGE_TAG"
+          artifacts:
+            - tag.txt # Valor da tag de versão do repo
+            - pipeline-template/** # pipeline-template
+            - ms-senior/** # repo do projeto de sincronização
+
+      - step:
+          name: generate version tag
+          cache:
+            - npm
+          script:
+            - export IMAGE_TAG=$(cat tag.txt)
+            - echo "$IMAGE_TAG"
+
+            - echo "🙏 Executando generate-tag.js..."
+            - node pipeline-template/scripts/generate-tag.js $IMAGE_TAG
+
+            - export NEW_VERSION=$(cat new-version.txt)
+            - echo "🚀 Versão obtida $NEW_VERSION"
+          artifacts:
+            - new-version.txt # arquivo que contém a nova tag
+
+      - step:
+          name: Build image docker
+          services:
+            - docker
+          caches:
+            - npm
+          script:
+            - export NEW_BUILD=$(cat new-version.txt)
+            - echo "$NEW_BUILD"
+
+            - echo "Executando docker-build.js..."
+            - node pipeline-template/scripts/docker-build.js $NEW_BUILD
+
+            - echo "Executando docker-push.js..."
+            - node pipeline-template/scripts/docker-push.js $NEW_BUILD
+
+      - step:
+          name: Update repo new version
+          caches:
+            - npm
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - export NEW_BUILD=$(cat new-version.txt)
+            - echo $NEW_BUILD
+
+            - echo "Executando update-version.js..."
+            - node pipeline-template/scripts/update-version.js $HELM_PROJECT dev $NEW_BUILD
+
+    homolog:
+      - step:
+          name: clone repo version
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - echo "Fazendo clone do projeto"
+            - git clone $PIPELINE_TEMPLATE_URL pipeline-template || { echo "Falha ao clonar pipeline-template"; exit 1; }
+
+            - cd pipeline-template
+            - echo "📦 Instalando dependências"
+            - npm install
+
+            - echo "🙏 Executando clone-helm.js..."
+            - cd ..
+            - node pipeline-template/scripts/clone-helm.js $HELM_PROJECT qa
+            - export IMAGE_TAG=$(cat tag.txt)
+            - echo "$IMAGE_TAG"
+          artifacts:
+            - tag.txt # Valor da tag de versão do repo
+            - pipeline-template/** # pipeline-template
+            - ms-senior/** # repo do projeto de sincronização
+
+      - step:
+          name: generate version tag
+          cache:
+            - npm
+          script:
+            - export IMAGE_TAG=$(cat tag.txt)
+            - echo "$IMAGE_TAG"
+
+            - echo "🙏 Executando generate-tag.js..."
+            - node pipeline-template/scripts/generate-tag.js $IMAGE_TAG
+
+            - export NEW_VERSION=$(cat new-version.txt)
+            - echo "🚀 Versão obtida $NEW_VERSION"
+          artifacts:
+            - new-version.txt # arquivo que contém a nova tag
+
+      - step:
+          name: Build image docker
+          services:
+            - docker
+          caches:
+            - npm
+          script:
+            - export NEW_BUILD=$(cat new-version.txt)
+            - echo "$NEW_BUILD"
+
+            - echo "Executando docker-build.js..."
+            - node pipeline-template/scripts/docker-build.js $NEW_BUILD
+
+            - echo "Executando docker-push.js..."
+            - node pipeline-template/scripts/docker-push.js $NEW_BUILD
+
+      - step:
+          name: Update repo new version
+          caches:
+            - npm
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - export NEW_BUILD=$(cat new-version.txt)
+            - echo $NEW_BUILD
+
+            - echo "Executando update-version.js..."
+            - node pipeline-template/scripts/update-version.js $HELM_PROJECT qa $NEW_BUILD
+
+    master:
+      - step:
+          name: clone repo version
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - echo "Fazendo clone do projeto"
+            - git clone $PIPELINE_TEMPLATE_URL pipeline-template || { echo "Falha ao clonar pipeline-template"; exit 1; }
+
+            - cd pipeline-template
+            - echo "📦 Instalando dependências"
+            - npm install
+
+            - echo "🙏 Executando clone-helm.js..."
+            - cd ..
+            - node pipeline-template/scripts/clone-helm.js $HELM_PROJECT prod
+            - export IMAGE_TAG=$(cat tag.txt)
+            - echo "$IMAGE_TAG"
+          artifacts:
+            - tag.txt # Valor da tag de versão do repo
+            - pipeline-template/** # pipeline-template
+            - ms-senior/** # repo do projeto de sincronização
+
+      - step:
+          name: generate version tag
+          cache:
+            - npm
+          script:
+            - export IMAGE_TAG=$(cat tag.txt)
+            - echo "$IMAGE_TAG"
+
+            - echo "🙏 Executando generate-tag.js..."
+            - node pipeline-template/scripts/generate-tag.js $IMAGE_TAG
+
+            - export NEW_VERSION=$(cat new-version.txt)
+            - echo "🚀 Versão obtida $NEW_VERSION"
+          artifacts:
+            - new-version.txt # arquivo que contém a nova tag
+
+      - step:
+          name: Build image docker
+          services:
+            - docker
+          caches:
+            - npm
+          script:
+            - export NEW_BUILD=$(cat new-version.txt)
+            - echo "$NEW_BUILD"
+
+            - echo "Executando docker-build.js..."
+            - node pipeline-template/scripts/docker-build.js $NEW_BUILD
+
+            - echo "Executando docker-push.js..."
+            - node pipeline-template/scripts/docker-push.js $NEW_BUILD
+
+      - step:
+          name: Update repo new version
+          caches:
+            - npm
+          script:
+            - echo "📦 Instalando dependências"
+            - apk add --no-cache git
+            - apk add --no-cache openssh-client
+
+            - export NEW_BUILD=$(cat new-version.txt)
+            - echo $NEW_BUILD
+
+            - echo "Executando update-version.js..."
+            - node pipeline-template/scripts/update-version.js $HELM_PROJECT prod $NEW_BUILD
